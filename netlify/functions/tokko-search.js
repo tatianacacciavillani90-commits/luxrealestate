@@ -109,8 +109,15 @@ exports.handler = async function (event) {
     }
   }
 
+  // El sitio pide un límite chico (30) para la vidriera general "ver catálogo
+  // completo" y uno más amplio (100) cuando hay un filtro puesto — un filtro
+  // específico (zona+tipo+ambientes) ya reduce mucho el universo de 450, así
+  // que no hace falta traer más que eso para cubrir todo lo que cumpla.
+  const limiteRaw = parseInt(params.limit, 10);
+  const limite = !isNaN(limiteRaw) ? Math.min(limiteRaw, 100) : 30;
+
   const searchUrl =
-    `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=12` +
+    `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=${limite}` +
     `&order_by=is_starred_on_web&order=DESC&key=${apiKey}` +
     `&data=${encodeURIComponent(JSON.stringify(searchData))}`;
 

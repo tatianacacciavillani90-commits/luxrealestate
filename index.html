@@ -839,7 +839,7 @@
         <h2>Propiedades destacadas</h2>
         <p>Un adelanto de nuestro catálogo activo. Filtrá por zona, tipo y ambientes — consultá directo por WhatsApp.</p>
       </div>
-      <button type="button" id="btnVerCatalogo" class="btn btn-outline" style="flex-shrink:0;">Ver catálogo completo</button>
+      <button type="button" id="btnVerCatalogo" class="btn btn-outline" style="flex-shrink:0;">Ver catálogo</button>
     </div>
 
     <form class="filtro-bar fade-up" id="filtroForm">
@@ -1620,7 +1620,7 @@
   function renderTokkoResultados(props) {
     propGrid.innerHTML = '';
     if (!props || !props.length) {
-      emptyState.innerHTML = 'No encontramos coincidencias exactas — <a href="#contacto" style="color:var(--bronze-light);">contactanos</a> y te ayudamos a buscar en nuestro catálogo completo.';
+      emptyState.innerHTML = 'No encontramos coincidencias exactas — <a href="#contacto" style="color:var(--bronze-light);">contactanos</a> y te ayudamos a buscar en nuestro catálogo.';
       emptyState.style.display = 'block';
       return;
     }
@@ -1651,7 +1651,7 @@
   }
 
   document.getElementById('btnVerCatalogo').addEventListener('click', async () => {
-    mostrarCargando('Cargando catálogo completo…');
+    mostrarCargando('Cargando catálogo…');
     try {
       const data = await buscarEnTokko({});
       renderTokkoResultados(data.propiedades);
@@ -1686,9 +1686,9 @@
       return;
     }
 
-    mostrarCargando('Buscando en nuestro catálogo completo…');
+    mostrarCargando('Buscando en nuestro catálogo…');
     try {
-      const data = await buscarEnTokko({ zona, tipo, operacion, ambientes });
+      const data = await buscarEnTokko({ zona, tipo, operacion, ambientes, limit: 100 });
       renderTokkoResultados(data.propiedades);
     } catch (e) {
       propGrid.innerHTML = '';
