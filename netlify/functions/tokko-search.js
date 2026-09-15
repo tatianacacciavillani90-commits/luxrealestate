@@ -88,6 +88,33 @@ exports.handler = async function (event) {
   const operacion = (params.operacion || '').trim();
   const ambientes = (params.ambientes || '').trim();
 
+  // Modo diagnóstico: ?debug=1 devuelve tal cual la primera propiedad que
+  // manda Tokko, sin filtrar ni traducir nada — sirve para confirmar los
+  // nombres reales de los campos (título, fotos, precio, tipo, operación)
+  // y ajustar los mapeos de este archivo con datos reales en vez de adivinar.
+  if (params.debug === '1') {
+    try {
+      const debugData = {
+        current_localization_id: 1,
+        current_localization_type: 'country',
+        price_from: 0,
+        price_to: 999999999999,
+        operation_types: [1, 2, 3],
+        property_types: [1, 2, 3, 4, 5, 6, 7],
+        currency: 'ANY',
+        filters: [],
+      };
+      const debugUrl =
+        `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=1` +
+        `&key=${apiKey}&data=${encodeURIComponent(JSON.stringify(debugData))}`;
+      const debugRes = await fetch(debugUrl);
+      const debugJson = await debugRes.json();
+      return { statusCode: 200, headers, body: JSON.stringify(debugJson, null, 2) };
+    } catch (e) {
+      return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: e.message }) };
+    }
+  }
+
   const ubicacion = await resolverUbicacion(zona, apiKey);
 
   const searchData = {
