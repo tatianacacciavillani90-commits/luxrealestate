@@ -1,0 +1,10 @@
+# ============================================================================
+# BLOQUE: TOKKO — configuración de Netlify
+# ============================================================================
+# Le dice a Netlify dónde están las funciones (netlify/functions) para que
+# /.netlify/functions/tokko-search funcione en el sitio publicado.
+# No hace falta tocar este archivo para nada del contenido del sitio.
+# ============================================================================
+[build]
+  functions = "netlify/functions"
+  publish = "."
