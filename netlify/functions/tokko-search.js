@@ -7,39 +7,31 @@
 // y ella es la que habla con Tokko usando la clave secreta.
 //
 // La clave se configura en Netlify → Site configuration → Environment variables
-// con el nombre exacto TOKKO_API_KEY (ver instrucciones aparte). Nunca va escrita
-// acá en el código ni en GitHub.
+// con el nombre exacto TOKKO_API_KEY. Nunca va escrita acá en el código ni en GitHub.
 //
 // Parámetros que acepta (todos opcionales, vía query string):
-//   ?zona=Nordelta&tipo=Casa&operacion=Venta&ambientes=4
+//   ?zona=Nordelta&tipo=Casa&operacion=Venta&ambientes=4&limit=30
 //
-// AVISO PARA FUTURAS EDICIONES: los nombres exactos de los campos que devuelve
-// Tokko (título, fotos, precio, etc.) están mapeados más abajo con varios
-// nombres alternativos "por las dudas", porque no pudimos probar esta función
-// contra la cuenta real antes de publicarla. Si algo aparece vacío o mal en el
-// sitio (ej. sin foto, sin precio), lo más probable es que el nombre del campo
-// real de Tokko sea distinto al que probamos primero — revisar la respuesta
-// cruda de Tokko (se puede loguear con console.log) y ajustar la lista de
-// nombres alternativos en las funciones "primero(...)" de más abajo.
+// CÓMO FILTRA (importante para futuras ediciones):
+// Tokko no publica una tabla oficial de "códigos" para tipo de propiedad ni
+// para ubicaciones, así que en vez de adivinar esos códigos (lo que fallaba
+// silenciosamente devolviendo 0 resultados), esta función le pide a Tokko un
+// lote grande de propiedades de LUX y filtra ELLA MISMA mirando los datos
+// reales que devuelve cada propiedad (nombre de zona, tipo, ambientes,
+// operación). Confirmado contra la cuenta real de LUX:
+//   - operations[].operation_type: string, ej. "Venta" / "Alquiler"
+//   - location.full_location / location.name / address / fake_address: texto de zona
+//   - room_amount: número de ambientes
+//   - photos[].image: foto
+// Si en el futuro algo no filtra bien, agregar ?debug=1 a la URL de esta
+// función (en el navegador) para ver una propiedad real completa y ajustar
+// los nombres de campo en "primero(...)" de más abajo.
 // ============================================================================
 
 const TOKKO_BASE = 'https://www.tokkobroker.com/api/v1';
 
-// Mapeos "mejor esfuerzo" — Tokko no publica una tabla oficial completa de IDs.
-// Si una búsqueda por tipo devuelve resultados incorrectos, este es el primer
-// lugar para corregir.
-const OPERATION_MAP = { 'Venta': 1, 'Alquiler': 2 };
-const TYPE_MAP = {
-  'Departamento': 1,
-  'Casa': 2,
-  'Lote': 3,
-  'Local': 4,
-  'Oficina': 5,
-  'Galpón/Depósito': 6,
-};
-
 // Devuelve el primer valor no vacío entre varias rutas posibles de un objeto,
-// para tolerar que Tokko use un nombre de campo distinto al esperado.
+// para tolerar variaciones en los nombres de campo.
 function primero(obj, rutas) {
   for (const ruta of rutas) {
     const valor = ruta.split('.').reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj);
@@ -48,23 +40,12 @@ function primero(obj, rutas) {
   return null;
 }
 
-async function resolverUbicacion(zona, apiKey) {
-  if (!zona) return null;
-  try {
-    const url = `${TOKKO_BASE}/location/?format=json&key=${apiKey}&lang=es_ar&q=${encodeURIComponent(zona)}&limit=1`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const lista = data.objects || data.results || (Array.isArray(data) ? data : []);
-    const primera = lista[0];
-    if (!primera) return null;
-    return {
-      id: primera.id,
-      tipo: (primera.type || 'division').toString().toLowerCase(),
-    };
-  } catch (e) {
-    return null;
-  }
+function normalizar(texto) {
+  return (texto || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ''); // saca acentos para comparar mejor
 }
 
 exports.handler = async function (event) {
@@ -83,30 +64,27 @@ exports.handler = async function (event) {
   }
 
   const params = event.queryStringParameters || {};
-  const zona = (params.zona || '').trim();
-  const tipo = (params.tipo || '').trim();
-  const operacion = (params.operacion || '').trim();
-  const ambientes = (params.ambientes || '').trim();
+  const zona = normalizar(params.zona);
+  const tipo = normalizar(params.tipo);
+  const operacion = normalizar(params.operacion);
+  const ambientesParam = (params.ambientes || '').trim();
 
   // Modo diagnóstico: ?debug=1 devuelve tal cual la primera propiedad que
-  // manda Tokko, sin filtrar ni traducir nada — sirve para confirmar los
-  // nombres reales de los campos (título, fotos, precio, tipo, operación)
-  // y ajustar los mapeos de este archivo con datos reales en vez de adivinar.
+  // manda Tokko, sin filtrar ni traducir nada.
   if (params.debug === '1') {
     try {
-      const debugData = {
-        current_localization_id: 1,
-        current_localization_type: 'country',
-        price_from: 0,
-        price_to: 999999999999,
-        operation_types: [1, 2, 3],
-        property_types: [1, 2, 3, 4, 5, 6, 7],
-        currency: 'ANY',
-        filters: [],
-      };
-      const debugUrl =
-        `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=1` +
-        `&key=${apiKey}&data=${encodeURIComponent(JSON.stringify(debugData))}`;
+      const debugUrl = `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=1&key=${apiKey}&data=${encodeURIComponent(
+        JSON.stringify({
+          current_localization_id: 1,
+          current_localization_type: 'country',
+          price_from: 0,
+          price_to: 999999999999,
+          operation_types: [1, 2, 3],
+          property_types: [1, 2, 3, 4, 5, 6, 7],
+          currency: 'ANY',
+          filters: [],
+        })
+      )}`;
       const debugRes = await fetch(debugUrl);
       const debugJson = await debugRes.json();
       return { statusCode: 200, headers, body: JSON.stringify(debugJson, null, 2) };
@@ -115,36 +93,31 @@ exports.handler = async function (event) {
     }
   }
 
-  const ubicacion = await resolverUbicacion(zona, apiKey);
+  // Pedimos un lote grande y sin restricciones de tipo/ubicación (esos los
+  // filtramos nosotros abajo con datos reales) para no depender de códigos
+  // adivinados. Solo restringimos por operación, que sí confirmamos:
+  // 1 = Venta, 2 = Alquiler, 3 = Alquiler temporal.
+  const OPERATION_MAP = { venta: 1, alquiler: 2 };
+  const operationTypes = OPERATION_MAP[operacion] ? [OPERATION_MAP[operacion]] : [1, 2, 3];
 
   const searchData = {
-    current_localization_id: ubicacion ? ubicacion.id : 1,
-    current_localization_type: ubicacion ? ubicacion.tipo : 'country',
+    current_localization_id: 1,
+    current_localization_type: 'country',
     price_from: 0,
     price_to: 999999999999,
-    operation_types: OPERATION_MAP[operacion] ? [OPERATION_MAP[operacion]] : [1, 2, 3],
-    property_types: TYPE_MAP[tipo] ? [TYPE_MAP[tipo]] : [1, 2, 3, 4, 5, 6, 7],
+    operation_types: operationTypes,
+    property_types: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     currency: 'ANY',
     filters: [],
   };
 
-  if (ambientes) {
-    const esMinimo = ambientes.includes('+');
-    const num = parseInt(ambientes.replace('+', ''), 10);
-    if (!isNaN(num)) {
-      searchData.filters.push(['room_amount', esMinimo ? '>' : '=', String(esMinimo ? num - 1 : num)]);
-    }
-  }
-
-  // El sitio pide un límite chico (30) para la vidriera general "ver catálogo
-  // completo" y uno más amplio (100) cuando hay un filtro puesto — un filtro
-  // específico (zona+tipo+ambientes) ya reduce mucho el universo de 450, así
-  // que no hace falta traer más que eso para cubrir todo lo que cumpla.
-  const limiteRaw = parseInt(params.limit, 10);
-  const limite = !isNaN(limiteRaw) ? Math.min(limiteRaw, 100) : 30;
+  const limiteFinal = Math.min(parseInt(params.limit, 10) || 30, 100);
+  // Pedimos bastante más de lo que vamos a mostrar, porque después filtramos
+  // nosotros mismos por zona/tipo/ambientes sobre este lote.
+  const limitePedido = zona || tipo || ambientesParam ? 200 : limiteFinal;
 
   const searchUrl =
-    `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=${limite}` +
+    `${TOKKO_BASE}/property/search/?lang=es_ar&format=json&limit=${limitePedido}` +
     `&order_by=is_starred_on_web&order=DESC&key=${apiKey}` +
     `&data=${encodeURIComponent(JSON.stringify(searchData))}`;
 
@@ -156,10 +129,10 @@ exports.handler = async function (event) {
     const data = await res.json();
     const crudas = data.objects || data.results || (Array.isArray(data) ? data : []);
 
-    const propiedades = crudas.map((p) => {
-      const fotosRaw = primero(p, ['photos', 'photo_set', 'images']) || [];
+    const conDatos = crudas.map((p) => {
+      const fotosRaw = primero(p, ['photos']) || [];
       const fotos = (Array.isArray(fotosRaw) ? fotosRaw : [])
-        .map((f) => (typeof f === 'string' ? f : primero(f, ['image', 'original', 'url', 'photo'])))
+        .map((f) => (typeof f === 'string' ? f : primero(f, ['image', 'original', 'thumb'])))
         .filter(Boolean);
 
       const operaciones = primero(p, ['operations']) || [];
@@ -167,29 +140,64 @@ exports.handler = async function (event) {
       const precios = primeraOperacion ? primero(primeraOperacion, ['prices']) : null;
       const primerPrecio = Array.isArray(precios) ? precios[0] : null;
       const nombresOperaciones = Array.isArray(operaciones)
-        ? operaciones.map((o) => primero(o, ['operation_type', 'name'])).filter(Boolean)
+        ? operaciones.map((o) => primero(o, ['operation_type'])).filter(Boolean)
         : [];
 
       const precioTexto = primerPrecio
         ? `${primero(primerPrecio, ['currency']) || 'USD'} ${Number(primero(primerPrecio, ['price', 'amount']) || 0).toLocaleString('es-AR')}`
         : 'Consultar precio';
 
+      const zonaTexto = primero(p, ['location.name']) || primero(p, ['fake_address', 'address']) || '';
+      const zonaCompleta = primero(p, ['location.full_location']) || '';
+      const tipoTexto = primero(p, ['type.name', 'property_type.name', 'type_name']) || '';
+      const ambientesNum = primero(p, ['room_amount']);
+
       return {
-        titulo: primero(p, ['publication_title', 'name', 'title']) || 'Propiedad disponible',
-        zona: primero(p, ['location.name', 'address', 'fake_address']) || zona || '',
-        tipo: primero(p, ['type.name', 'property_type.name']) || tipo || '',
-        operacion: nombresOperaciones.join(' / ') || operacion || '',
-        ambientes: primero(p, ['room_amount', 'suite_amount']) || '',
+        _zonaBusqueda: normalizar(zonaTexto + ' ' + zonaCompleta),
+        _tipoBusqueda: normalizar(tipoTexto),
+        _ambientes: ambientesNum ? parseInt(ambientesNum, 10) : null,
+        titulo: primero(p, ['publication_title', 'name']) || `${tipoTexto || 'Propiedad'} en ${zonaTexto}`.trim(),
+        zona: zonaTexto,
+        tipo: tipoTexto,
+        operacion: nombresOperaciones.join(' / '),
+        ambientes: ambientesNum || '',
         precio: precioTexto,
         foto: fotos[0] || '',
         url: primero(p, ['public_url', 'website_url']) || null,
       };
     });
 
+    let filtradas = conDatos;
+
+    if (zona) {
+      filtradas = filtradas.filter((p) => p._zonaBusqueda.includes(zona));
+    }
+    if (tipo) {
+      // Si la propiedad no trae tipo identificable, la dejamos pasar en vez
+      // de descartarla — mejor mostrar de más que esconder resultados válidos
+      // por un campo que no pudimos leer.
+      filtradas = filtradas.filter((p) => !p._tipoBusqueda || p._tipoBusqueda.includes(tipo));
+    }
+    if (ambientesParam) {
+      const esMinimo = ambientesParam.includes('+');
+      const num = parseInt(ambientesParam.replace('+', ''), 10);
+      if (!isNaN(num)) {
+        filtradas = filtradas.filter((p) => {
+          if (p._ambientes === null) return false;
+          return esMinimo ? p._ambientes >= num : p._ambientes === num;
+        });
+      }
+    }
+
+    const propiedades = filtradas.slice(0, limiteFinal).map((p) => {
+      const { _zonaBusqueda, _tipoBusqueda, _ambientes, ...limpio } = p;
+      return limpio;
+    });
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ ok: true, total: propiedades.length, propiedades }),
+      body: JSON.stringify({ ok: true, total: propiedades.length, totalDisponible: filtradas.length, propiedades }),
     };
   } catch (e) {
     return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: e.message }) };
