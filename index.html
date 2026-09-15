@@ -1662,29 +1662,17 @@
 
   // El formulario primero filtra las propiedades destacadas (locales); si no
   // encuentra nada, busca en vivo en el catálogo completo de Tokko.
+  // El botón "Buscar" siempre consulta el catálogo completo de Tokko con los
+  // filtros elegidos (dejar un campo en "Seleccionar" = sin restringir por
+  // ese campo). Así una búsqueda parcial (ej. solo zona + tipo) trae TODO lo
+  // que cumpla eso, sin quedarse a mitad de camino con lo que haya como
+  // destacada. Las destacadas locales solo se ven en la vista inicial, antes
+  // de tocar "Buscar".
   document.getElementById('btnFiltrar').addEventListener('click', async () => {
     const zona = document.getElementById('fZona').value;
     const tipo = document.getElementById('fTipo').value;
     const operacion = document.getElementById('fOperacion').value;
     const ambientes = document.getElementById('fAmbientes').value;
-
-    const filtradas = propiedades.filter(p => {
-      if (zona && !p.zona.toLowerCase().includes(zona.toLowerCase())) return false;
-      if (tipo && p.tipo !== tipo) return false;
-      if (operacion && p.operacion !== operacion) return false;
-      if (ambientes) {
-        const amb = parseInt(p.ambientes, 10);
-        const min = parseInt(ambientes.replace('+',''), 10);
-        if (ambientes.includes('+')) { if (amb < min) return false; }
-        else if (amb !== min) return false;
-      }
-      return true;
-    });
-
-    if (filtradas.length) {
-      renderPropiedades(filtradas);
-      return;
-    }
 
     mostrarCargando('Buscando en nuestro catálogo…');
     try {
