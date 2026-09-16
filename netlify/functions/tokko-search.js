@@ -65,7 +65,12 @@ async function traducirTexto(texto) {
     const url =
       'https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl=en&dt=t&q=' +
       encodeURIComponent(texto);
-    const res = await fetch(url);
+    // Le ponemos un límite de tiempo corto: si el traductor no responde rápido,
+    // seguimos con el español en vez de dejar colgada toda la búsqueda.
+    const controlador = new AbortController();
+    const aviso = setTimeout(() => controlador.abort(), 3500);
+    const res = await fetch(url, { signal: controlador.signal });
+    clearTimeout(aviso);
     if (!res.ok) return texto;
     const data = await res.json();
     // Formato de respuesta: [[["texto traducido","texto original",...], ...], ...]
@@ -233,12 +238,15 @@ exports.handler = async function (event) {
 
     // Solo si el sitio pidió inglés: traducimos el título de cada propiedad
     // (en paralelo, y solo de la tanda final que se va a mostrar — nunca de
-    // las 200 que se pidieron para filtrar). Si alguna traducción falla,
-    // esa propiedad puntual queda con su título en español; el resto sigue
-    // funcionando normal.
+    // las 200 que se pidieron para filtrar). Si alguna traducción falla o
+    // tarda de más, esa propiedad puntual queda con su título en español; el
+    // resto sigue funcionando normal. Además, para no saturar el traductor
+    // gratuito de una sola vez, traducimos como mucho las primeras 25 — el
+    // resto (si hay más) queda en español, sin romper la búsqueda.
     if (idioma === 'en') {
+      const LIMITE_TRADUCCION = 25;
       await Promise.all(
-        propiedades.map(async (p) => {
+        propiedades.slice(0, LIMITE_TRADUCCION).map(async (p) => {
           p.tituloEn = await traducirTexto(p.titulo);
         })
       );
