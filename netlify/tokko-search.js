@@ -10,7 +10,7 @@
 // con el nombre exacto TOKKO_API_KEY. Nunca va escrita acá en el código ni en GitHub.
 //
 // Parámetros que acepta (todos opcionales, vía query string):
-//   ?zona=Nordelta&tipo=Casa&operacion=Venta&ambientes=4&limit=30
+//   ?zona=Nordelta&tipo=Casa&operacion=Venta&ambientes=4&limit=30&lang=en
 //
 // CÓMO FILTRA (importante para futuras ediciones):
 // Tokko no publica una tabla oficial de "códigos" para tipo de propiedad ni
@@ -48,6 +48,34 @@ function normalizar(texto) {
     .replace(/[\u0300-\u036f]/g, ''); // saca acentos para comparar mejor
 }
 
+// ============================================================================
+// BLOQUE: TRADUCCIÓN — título de la propiedad al inglés
+// ============================================================================
+// El título de cada propiedad es texto libre que escribió el asesor en Tokko
+// (ej. "Departamento con vista al lago en Oceana Nordelta") — no es un dato
+// estructurado, así que no hay forma de traducirlo "a mano" como el resto del
+// sitio. Cuando el sitio pide los resultados en inglés (?lang=en), esta
+// función llama a un traductor automático gratuito (Google Translate, sin
+// necesitar cuenta ni clave) solo para ese texto puntual.
+// Si el traductor falla o no responde a tiempo, se deja el título en español
+// tal cual — nunca se rompe la búsqueda por esto.
+async function traducirTexto(texto) {
+  if (!texto) return texto;
+  try {
+    const url =
+      'https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl=en&dt=t&q=' +
+      encodeURIComponent(texto);
+    const res = await fetch(url);
+    if (!res.ok) return texto;
+    const data = await res.json();
+    // Formato de respuesta: [[["texto traducido","texto original",...], ...], ...]
+    const traducido = (data[0] || []).map((tramo) => tramo[0]).join('');
+    return traducido || texto;
+  } catch (e) {
+    return texto;
+  }
+}
+
 exports.handler = async function (event) {
   const headers = {
     'Content-Type': 'application/json',
@@ -68,6 +96,7 @@ exports.handler = async function (event) {
   const tipo = normalizar(params.tipo);
   const operacion = normalizar(params.operacion);
   const ambientesParam = (params.ambientes || '').trim();
+  const idioma = (params.lang || 'es').toLowerCase();
 
   // Modo diagnóstico: ?debug=1 devuelve tal cual la primera propiedad que
   // manda Tokko, sin filtrar ni traducir nada.
@@ -91,6 +120,14 @@ exports.handler = async function (event) {
     } catch (e) {
       return { statusCode: 500, headers, body: JSON.stringify({ ok: false, error: e.message }) };
     }
+  }
+
+  // Modo diagnóstico 2: ?debugTraduccion=Texto en español devuelve la
+  // traducción tal cual la da el traductor, para confirmar rápido desde el
+  // navegador que la conexión funciona después de desplegar.
+  if (params.debugTraduccion) {
+    const traducido = await traducirTexto(params.debugTraduccion);
+    return { statusCode: 200, headers, body: JSON.stringify({ original: params.debugTraduccion, traducido }) };
   }
 
   // Pedimos un lote grande y sin restricciones de tipo/ubicación (esos los
@@ -193,6 +230,19 @@ exports.handler = async function (event) {
       const { _zonaBusqueda, _tipoBusqueda, _ambientes, ...limpio } = p;
       return limpio;
     });
+
+    // Solo si el sitio pidió inglés: traducimos el título de cada propiedad
+    // (en paralelo, y solo de la tanda final que se va a mostrar — nunca de
+    // las 200 que se pidieron para filtrar). Si alguna traducción falla,
+    // esa propiedad puntual queda con su título en español; el resto sigue
+    // funcionando normal.
+    if (idioma === 'en') {
+      await Promise.all(
+        propiedades.map(async (p) => {
+          p.tituloEn = await traducirTexto(p.titulo);
+        })
+      );
+    }
 
     return {
       statusCode: 200,

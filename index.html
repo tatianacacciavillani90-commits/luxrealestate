@@ -1720,7 +1720,10 @@
   // acá). Se usa en dos lugares: el botón "Ver catálogo completo" (sin filtros)
   // y automáticamente cuando el filtro de "destacadas" no encuentra nada.
   async function buscarEnTokko(filtros) {
-    const qs = new URLSearchParams(filtros).toString();
+    // Le avisamos a la función en qué idioma está el sitio ahora mismo, para
+    // que traduzca el título de cada propiedad solo cuando hace falta (nunca
+    // en español, para no gastar de más).
+    const qs = new URLSearchParams({ ...filtros, lang: idioma }).toString();
     const res = await fetch('/.netlify/functions/tokko-search?' + qs);
     if (!res.ok) throw new Error('No se pudo conectar con el catálogo');
     return res.json();
@@ -1747,18 +1750,19 @@
       ? txt.split(' / ').map(o => OP_EN_TOKKO[o.toLowerCase()] || o).join(' / ')
       : txt;
     props.forEach(p => {
+      const tituloTxt = campo(p, 'titulo');
       const tipoTxt = traducirTipo(p.tipo);
       const opTxt = traducirOp(p.operacion);
-      const msg = encodeURIComponent(t(`Hola, me interesa la propiedad "${p.titulo}" en ${p.zona}. ¿Me pasás más info?`, `Hi, I'm interested in the property "${p.titulo}" in ${p.zona}. Could you send me more info?`));
+      const msg = encodeURIComponent(t(`Hola, me interesa la propiedad "${p.titulo}" en ${p.zona}. ¿Me pasás más info?`, `Hi, I'm interested in the property "${tituloTxt}" in ${p.zona}. Could you send me more info?`));
       propGrid.innerHTML += `
         <div class="prop-card">
           <div class="prop-img">
             <span class="prop-tag">${opTxt || t('Consultar','Inquire')}</span>
-            ${p.foto ? `<img class="prop-slide active" src="${p.foto}" alt="${p.titulo}">` : ''}
+            ${p.foto ? `<img class="prop-slide active" src="${p.foto}" alt="${tituloTxt}">` : ''}
           </div>
           <div class="prop-body">
             <span class="zona">${p.zona}${tipoTxt ? ' · ' + tipoTxt : ''}</span>
-            <h3>${p.titulo}</h3>
+            <h3>${tituloTxt}</h3>
             <div class="prop-meta"><span>${p.ambientes ? p.ambientes + ' ' + t('amb.','room(s)') : ''}</span></div>
             <div class="prop-price">${campo(p,'precio')}</div>
             <a class="prop-wa" href="https://wa.me/${LUX_WHATSAPP_NUMBER}?text=${msg}" target="_blank" rel="noopener">${t('Consultar por WhatsApp','Inquire via WhatsApp')}</a>
